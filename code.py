@@ -7,8 +7,7 @@ from streamlit_autorefresh import st_autorefresh
 import gspread
 from gspread_dataframe import get_as_dataframe, set_with_dataframe
 
-# --- VERIFIED Page Configuration ---
-# This block is correctly formatted.
+# --- Page Configuration ---
 st.set_page_config(
     page_title="Football Tournament Manager",
     page_icon="⚽",
@@ -71,14 +70,11 @@ except Exception as e:
     st.error(f"Could not connect to Google Sheets. Check secrets and sheet name. Error: {e}")
     st.stop()
 
+
 # --- Utility Functions ---
 def load_players_from_excel(file):
     df = pd.read_excel(file, engine='openpyxl')
     return df['Player'].dropna().tolist()
-
-# --- Data Functions for Google Sheets ---
-def load_history_from_sheets():
-    # ... your existing function ...
 
 # --- Data Functions for Google Sheets ---
 def load_history_from_sheets():
@@ -185,7 +181,7 @@ if 'goal_events' not in st.session_state: st.session_state.goal_events = []
 if 'substitutions' not in st.session_state: st.session_state.substitutions = {}
 
 # ---------- Main App UI & Logic ----------
-st.title("ניהול טורניר כדורגל")
+st.title("ניהול טורניр כדורגל")
 
 tab1, tab2, tab3, tab4 = st.tabs([
     "📅 התחל טורניר חדש", 
@@ -197,7 +193,7 @@ tab1, tab2, tab3, tab4 = st.tabs([
 # --- Tab 1: Start New Tournament ---
 with tab1:
     st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.header("הגדרות טורניר חדש")
+    st.header("הגדרות טורניр חדש")
     excel_file = st.file_uploader("ייבא שחקנים מקובץ Excel (עמודה בשם 'Player')", type=['xlsx'])
     if excel_file: st.session_state.players = load_players_from_excel(excel_file)
     num_teams = st.selectbox("מספר קבוצות", [2, 3, 4], index=1)
@@ -220,7 +216,7 @@ with tab1:
     with col1: team1 = st.selectbox("קבוצה ראשונה", list(range(1, num_teams+1)), index=0)
     with col2: team2 = st.selectbox("קבוצה שנייה", list(range(1, num_teams+1)), index=1)
     
-    if st.button("🚀 התחל טורניר!", key="start_tourney_btn"):
+    if st.button("🚀 התחל טורניр!", key="start_tourney_btn"):
         if team1 == team2:
             st.error("יש לבחור שתי קבוצות שונות למשחק הפתיחה.")
         else:
@@ -237,14 +233,14 @@ with tab1:
             st.session_state.substitutions = {}
             st.session_state.g1 = 0
             st.session_state.g2 = 0
-            st.success("טורניר התחיל! נווט ל'ניהול משחק חי' כדי להתחיל.")
-            st.rerun()
+            st.success("טורניр התחיל! נווט ל'ניהול משחק חי' כדי להתחיל.")
+            # We don't rerun here, let the user navigate
     st.markdown('</div>', unsafe_allow_html=True)
 
 # --- Tab 2: Live Match ---
 with tab2:
     st.markdown('<div class="card">', unsafe_allow_html=True)
-    if not st.session_state.tournament:
+    if not st.session_state.tournament or not st.session_state.tournament.get('current_match'):
         st.info("יש להתחיל טורניר חדש בכרטיסייה הראשונה.")
         st.stop()
     
@@ -364,7 +360,7 @@ with tab2:
 with tab3:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     if not st.session_state.tournament or not st.session_state.tournament.get('history'):
-        st.info("יש לשחק לפחות משחק אחד לפני שמסיימים את הטורניр.")
+        st.info("יש לשחק לפחות משחק אחד לפני שמסיימים את הטורניר.")
         st.stop()
     st.header("🏁 תוצאות סופיות")
     tm = st.session_state.tournament
@@ -374,9 +370,9 @@ with tab3:
     st.dataframe(df_teams.sort_values(by=['ניקוד סופי', 'יחס שערים', 'שערי זכות'], ascending=False), use_container_width=True)
     st.subheader("🏅 דירוג שחקנים")
     st.dataframe(df_players.sort_values(by=['נקודות', 'שערים', 'בישולים'], ascending=False), use_container_width=True)
-    if st.button("💾 שמור טורניר והתחל חדש", key="save_tourney_btn"):
+    if st.button("💾 שמור טורניр והתחל חדש", key="save_tourney_btn"):
         save_tournament_to_sheets(st.session_state.tournament)
-        st.success("הטורניר נשמר בהיסטוריה!")
+        st.success("הטורניр נשמר בהיסטוריה!")
         st.balloons()
         st.session_state.history = load_history_from_sheets()
         st.session_state.tournament = {}
