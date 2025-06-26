@@ -71,6 +71,14 @@ except Exception as e:
     st.error(f"Could not connect to Google Sheets. Check secrets and sheet name. Error: {e}")
     st.stop()
 
+# --- Utility Functions ---
+def load_players_from_excel(file):
+    df = pd.read_excel(file, engine='openpyxl')
+    return df['Player'].dropna().tolist()
+
+# --- Data Functions for Google Sheets ---
+def load_history_from_sheets():
+    # ... your existing function ...
 
 # --- Data Functions for Google Sheets ---
 def load_history_from_sheets():
