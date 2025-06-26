@@ -131,7 +131,172 @@ def calculate_team_stats(matches, teams):
     for s in stats.values():
         s['יחס שערים'] = s['שערי זכות'] - s['שערי חובה']
         s['ניקוד סופי'] = s['ניצחונות'] * 3 + s['תיקו']
+    return pd.DataFrame.from_dict: {e}")
+    st.stop()
+
+
+# --- Utility Functions ---
+def load_players_from_excel(file):
+    df = pd.read_excel(file, engine='openpyxl')
+    return df['Player'].dropna().tolist()
+
+# --- Data Functions for Google Sheets ---
+def load_history_from_sheets():
+    df = get_as_dataframe(worksheet, evaluate_formulas=True).dropna(how='all')
+    history_list = []
+    for index, row in df.iterrows():
+        try:
+            tournament = {
+                'tournament_id': row['tournament_id'], 'date': row['date'], 'teams': int(row['teams']),
+                'players': json.loads(row['players'].replace("'", '"')), 
+                'history': json.loads(row['history'].replace("'", '"'))
+            }
+            history_list.append(tournament)
+        except Exception as e:
+            st.warning(f"Skipping a corrupted row in history: {e}")
+            continue
+    return history_list
+
+def save_tournament_to_sheets(tournament_data):
+    existing_df = get_as_dataframe(worksheet, evaluate_formulas=True).dropna(how='all')
+    new_data = {
+        'tournament_id': tournament_data.get('date') + "_" + str(random.randint(1000, 9999)),
+        'date': tournament_data.get('date'), 'teams': tournament_data.get('teams'),
+        'players': json.dumps(tournament_data.get('players', {})),
+        'history': json.dumps(tournament_data.get('history', []))
+    }
+    new_df = pd.DataFrame([new_data])
+    updated_df = pd.concat([existing_df, new_df], ignore_index=True)
+    set_with_dataframe(worksheet, updated_df)
+
+
+# --- Stat Calculation Functions ---
+def calculate_team_stats(matches, teams):
+    stats = {str(i): {'משחקים': 0, 'ניצחונות': 0, 'תיקו': 0, 'הפסדים': 0,
+                      'שערי זכות': 0, 'שערי חובה': 0} for i in range(1, int(teams)+1)}
+    for m in matches:
+        t1, t2 = str(m['teams'][0]), str(m['teams'][1])
+        g1, g2 = m['score']
+        stats[t1]['משחקים'] += 1
+        stats[t2]['משחקים'] += 1
+        stats[t1]['שערי זכות'] += g1
+        stats[t1]['שערי חובה'] += g2
+        stats[t2]['שערי זכות'] += g2
+        stats[t2]['שערי חובה'] += g1
+        if g1 > g2:
+            stats[t1]['ניצחונות'] += 1
+            stats[t2]['הפסדים'] += 1
+        elif g2 > g1:
+            stats[t2]['ניצחונות'] += 1
+            stats[t1]['הפסדים'] += 1
+        else:
+            stats[t1]['תיקו'] += 1
+            stats[t2]['תיקו'] += 1
+    for s in stats.values():
+        s['יחס שערים'] = s['שערי זכות'] - s['שערי חובה']
+        s['ניקוד סופי'] = s['ניצחונות'] * 3 + s['תיקו']
     return pd.DataFrame.from_dict(stats, orient='index')
+
+def calculate_player_stats(matches):
+    stats = {}
+    for m in matches:
+        rosters_for_stats = m.get('original_players', m.get('players', {}))
+        
+        players_in_match = []
+        for team_id in rosters_for_stats:
+            players_in_match.extend(rosters_for_stats[team_id])
+        
+        for p in players_in_match:
+            if p not in stats:
+                stats[p] = {'משחקים': 0, 'ניצחונות': 0, 'תיקו': 0, 'הפסדים': 0, 'שערים': 0, 'בישולים': 0}
+            stats[p]['משחקים'] += 1
+
+        winner = None
+        t1, t2 = str(m['teams'][0]), str(m['teams'][1])
+        g1, g2 = m['score']
+        if g1 > g2: winner = t1
+        elif g2 > g1: winner = t2
+        
+        for team_id in rosters_for_stats:
+            for p in rosters_for_stats[team_id]:
+                if str(winner) == str(team_id): stats[p]['ניצחונות'] += 1
+                elif winner is None: stats[p]['תיקו'] += 1
+                else: stats[p]['הפסדים'] += 1
+                    
+        for p in m.get('scorers', []):
+            if p in stats: stats[p]['שערים'] += 1
+        for p in m.get('assists', []):
+            if p in stats: stats[p]['בישולים'] += 1
+            
+    for s in stats.values():
+        s['נקודות'] = s['ניצחונות'] + s['בישולים'] + s['שערים'] * 2
+    return pd.DataFrame.from_dict(stats, orient='index')
+
+# ---------- App State Initialization (with Quota Fix) ----------
+# Add a flag to ensure we only load from the sheet once per session.
+if 'history_loaded' not in st.session_state:
+    with st.spinner("טוען היסטוריית טורנירים..."):
+        st.session_state.history = load_history_from_sheets()
+    st.session_state.history_loaded = True # Set the flag to True
+
+# Initialize other state variables if they don't exist
+if 'players' not in st.session_state: st.session_state.players = []
+if 'tournament' not in st.session_state: st.session_state.tournament = {}
+if 'matches' not in st.session_state: st.session_state.matches = []
+if 'timer_running' not in st.session_state: st.session_state.timer_running = False
+if 'timer_start_time' not in st.session_state: st.session_state.timer_start_time = None
+if 'elapsed_time' not in st.session_state: st.session_state.elapsed_time = timedelta(0)
+if 'goal_events' not in st.session_state: st.session_state.goal_events = []
+if 'substitutions' not in st.session_state: st.session_state.substitutions = {}
+
+
+# ---------- Main App UI & Logic ----------
+st.title("ניהול טורניר כדורגל")
+
+tab1, tab2, tab3, tab4 = st.tabs([
+    "📅 התחל טורניר חדש", 
+    "🎮 ניהול משחק חי", 
+    "🏆 סיים טורניר", 
+    "📜 היסטוריית טורנירים"
+])
+
+# --- Tab 1: Start New Tournament ---
+with tab1:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.header("הגדרות טורניר חדש")
+    excel_file = st.file_uploader("ייבא שחקנים מקובץ Excel (עמודה בשם 'Player')", type=['xlsx'])
+    if excel_file: st.session_state.players = load_players_from_excel(excel_file)
+    num_teams = st.selectbox("מספר קבוצות", [2, 3, 4], index=1)
+    st.info("בחר שחקנים עבור כל קבוצה. מקסימום 6 שחקנים.")
+    team_players = {}
+    assigned_players = set()
+    cols = st.columns(num_teams)
+    for i in range(1, num_teams + 1):
+        with cols[i-1]:
+            available_players = [p for p in st.session_state.players if p not in assigned_players]
+            selected = st.multiselect(f"שחקני קבוצה {i}", options=available_players, key=f"team_{i}")
+            if len(selected) > 6:
+                st.warning(f"קבוצה {i} לא יכולה להכיל יותר מ-6 שחקנים.")
+                selected = selected[:6]
+            team_players[str(i)] = selected
+            assigned_players.update(selected)
+    st.markdown("---")
+    st.subheader("משחק פתיחה")
+    col1, col2 = st.columns(2)
+    with col1: team1 = st.selectbox("קבוצה ראשונה", list(range(1, num_teams+1)), index=0)
+    with col2: team2 = st.selectbox("קבוצה שנייה", list(range(1, num_teams+1)), index=1)
+    
+    if st.button("🚀 התחל טורניר!", key="start_tourney_btn"):
+        if team1 == team2:
+            st.error("יש לבחור שתי קבוצות שונות למשחק הפתיחה.")
+        else:
+            st.session_state.tournament = {
+                'date': str(datetime.today().date()), 'teams': num_teams, 'players': team_players,
+                'current_match': [str(team1), str(team2)], 'history': [],
+                'streak': {str(i): 0 for i in range(1, num_teams+1)}
+            }
+            st.session_state.matches = []
+            st.session_(stats, orient='index')
 
 def calculate_player_stats(matches):
     stats = {}
@@ -168,9 +333,14 @@ def calculate_player_stats(matches):
         s['נקודות'] = s['ניצחונות'] + s['בישולים'] + s['שערים'] * 2
     return pd.DataFrame.from_dict(stats, orient='index')
 
-# ---------- App State Initialization ----------
-if 'history' not in st.session_state:
-    st.session_state.history = load_history_from_sheets()
+# ---------- App State Initialization (with Quota Fix) ----------
+# Add a flag to ensure we only load from the sheet once per session.
+if 'history_loaded' not in st.session_state:
+    with st.spinner("טוען היסטוריית טורנירים..."):
+        st.session_state.history = load_history_from_sheets()
+    st.session_state.history_loaded = True # Set the flag to True
+
+# Initialize other state variables if they don't exist
 if 'players' not in st.session_state: st.session_state.players = []
 if 'tournament' not in st.session_state: st.session_state.tournament = {}
 if 'matches' not in st.session_state: st.session_state.matches = []
@@ -180,8 +350,9 @@ if 'elapsed_time' not in st.session_state: st.session_state.elapsed_time = timed
 if 'goal_events' not in st.session_state: st.session_state.goal_events = []
 if 'substitutions' not in st.session_state: st.session_state.substitutions = {}
 
+
 # ---------- Main App UI & Logic ----------
-st.title("ניהול טורניр כדורגל")
+st.title("ניהול טורניר כדורגל")
 
 tab1, tab2, tab3, tab4 = st.tabs([
     "📅 התחל טורניר חדש", 
@@ -193,7 +364,7 @@ tab1, tab2, tab3, tab4 = st.tabs([
 # --- Tab 1: Start New Tournament ---
 with tab1:
     st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.header("הגדרות טורניр חדש")
+    st.header("הגדרות טורניר חדש")
     excel_file = st.file_uploader("ייבא שחקנים מקובץ Excel (עמודה בשם 'Player')", type=['xlsx'])
     if excel_file: st.session_state.players = load_players_from_excel(excel_file)
     num_teams = st.selectbox("מספר קבוצות", [2, 3, 4], index=1)
@@ -233,15 +404,22 @@ with tab1:
             st.session_state.substitutions = {}
             st.session_state.g1 = 0
             st.session_state.g2 = 0
-            st.success("טורניр התחיל! נווט ל'ניהול משחק חי' כדי להתחיל.")
-            # We don't rerun here, let the user navigate
+            st.success("טורניר התחיל! נווט ל'ניהול משחק חי' כדי להתחיל.")
+    st.markdown('</div>', unsafe_allow_html=True)state.timer_running = False
+            st.session_state.timer_start_time = None
+            st.session_state.elapsed_time = timedelta(0)
+            st.session_state.goal_events = []
+            st.session_state.substitutions = {}
+            st.session_state.g1 = 0
+            st.session_state.g2 = 0
+            st.success("טורניר התחיל! נווט ל'ניהול משחק חי' כדי להתחיל.")
     st.markdown('</div>', unsafe_allow_html=True)
 
 # --- Tab 2: Live Match ---
 with tab2:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     if not st.session_state.tournament or not st.session_state.tournament.get('current_match'):
-        st.info("יש להתחיל טורניר חדש בכרטיסייה הראשונה.")
+        st.info("יש להתחיל טורניр חדש בכרטיסייה הראשונה.")
         st.stop()
     
     if st.session_state.timer_running: st_autorefresh(interval=1000, key="timer_refresh")
@@ -333,7 +511,7 @@ with tab2:
             if len(st.session_state.matches) == 1: winner = random.choice([t1, t2])
             else:
                 prev_match_teams = st.session_state.matches[-2]['teams']
-                winner = t2 if t1 in prev_match_teams else t1
+                winner = t2 if str(t1) in prev_match_teams else t1
         all_teams_ids = list(tm['players'].keys())
         if tm['streak'].get(winner, 0) >= 3:
             rest_team, loser = winner, t2 if winner == t1 else t1
@@ -370,11 +548,14 @@ with tab3:
     st.dataframe(df_teams.sort_values(by=['ניקוד סופי', 'יחס שערים', 'שערי זכות'], ascending=False), use_container_width=True)
     st.subheader("🏅 דירוג שחקנים")
     st.dataframe(df_players.sort_values(by=['נקודות', 'שערים', 'בישולים'], ascending=False), use_container_width=True)
-    if st.button("💾 שמור טורניр והתחל חדש", key="save_tourney_btn"):
-        save_tournament_to_sheets(st.session_state.tournament)
-        st.success("הטורניр נשמר בהיסטוריה!")
+    if st.button("💾 שמור טורניר והתחל חדש", key="save_tourney_btn"):
+        with st.spinner("שומר טורניר..."):
+            save_tournament_to_sheets(st.session_state.tournament)
+        st.success("הטורניר נשמר בהיסטוריה!")
         st.balloons()
-        st.session_state.history = load_history_from_sheets()
+        # Reset the flag so next session reloads history including the one just saved
+        if 'history_loaded' in st.session_state:
+            del st.session_state.history_loaded
         st.session_state.tournament = {}
         st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
