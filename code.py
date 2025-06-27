@@ -5,7 +5,7 @@ import random
 from datetime import datetime, timedelta
 from streamlit_autorefresh import st_autorefresh
 
-# --- Page Configuration ---
+# --- 1. Page Configuration (No changes here) ---
 st.set_page_config(
     page_title="Football Tournament Manager",
     page_icon="⚽",
@@ -13,7 +13,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- Improved High-Contrast Theme CSS Block ---
+# --- 2. Improved High-Contrast Theme CSS Block ---
 st.markdown("""
 <style>
     /* General App Styling */
@@ -56,7 +56,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# ---------- Utility Functions ----------
+# ---------- Utility Functions (Translated Column Names) ----------
 def load_players_from_excel(file):
     df = pd.read_excel(file, engine='openpyxl')
     return df['Player'].dropna().tolist()
@@ -134,19 +134,19 @@ def calculate_player_stats(matches):
     return pd.DataFrame.from_dict(stats, orient='index')
 
 
-# ---------- App State ----------
+# ---------- App State (Translated default menu) ----------
 if 'players' not in st.session_state: st.session_state.players = []
 if 'tournament' not in st.session_state: st.session_state.tournament = {}
 if 'matches' not in st.session_state: st.session_state.matches = []
 if 'history' not in st.session_state: st.session_state.history = load_json('tournaments.json')
-if 'page' not in st.session_state: st.session_state.page = "Start a New Tournament" # <-- FIX: Using 'page' for navigation
+if 'menu' not in st.session_state: st.session_state.menu = "Start a New Tournament"
 if 'timer_running' not in st.session_state: st.session_state.timer_running = False
 if 'timer_start_time' not in st.session_state: st.session_state.timer_start_time = None
 if 'elapsed_time' not in st.session_state: st.session_state.elapsed_time = timedelta(0)
 if 'goal_events' not in st.session_state: st.session_state.goal_events = []
 if 'substitutions' not in st.session_state: st.session_state.substitutions = {}
 
-# ---------- Sidebar Menu ----------
+# ---------- Sidebar Menu (Translated) ----------
 st.sidebar.title("Navigation Menu")
 menu_options = {
     "Start a New Tournament": "📅",
@@ -154,22 +154,20 @@ menu_options = {
     "Finish Tournament": "🏆",
     "Tournament History": "📜"
 }
-
-# <-- FIX: The radio button now directly reads from and writes to st.session_state.page
-st.sidebar.radio(
+menu_selection = st.sidebar.radio(
     "Select a screen:",
-    options=list(menu_options.keys()),
+    options=menu_options.keys(),
     format_func=lambda option: f"{menu_options[option]} {option}",
-    key="page" 
+    key="menu_selection"
 )
+st.session_state.menu = menu_selection
 
 st.title("Football Tournament Manager")
 
-# ---------- App Logic ----------
+# ---------- App Logic (Translated and Improved) ----------
 
 # ---------- Start Tournament ----------
-# <-- FIX: Using st.session_state.page to control the view
-if st.session_state.page == "Start a New Tournament":
+if st.session_state.menu == "Start a New Tournament":
     st.header("New Tournament Setup")
     excel_file = st.file_uploader("Import players from an Excel file (Column must be named 'Player')", type=['xlsx'])
     if excel_file:
@@ -200,6 +198,7 @@ if st.session_state.page == "Start a New Tournament":
     with col2:
         team2 = st.selectbox("Second Team", list(range(1, num_teams+1)), index=1)
     
+    # --- 3. Changed button text, redirection logic is the same ---
     if st.button("Let's start to play ⚽"):
         if team1 == team2:
             st.error("You must select two different teams for the opening match.")
@@ -210,7 +209,7 @@ if st.session_state.page == "Start a New Tournament":
                 'streak': {str(i): 0 for i in range(1, num_teams+1)}
             }
             st.session_state.matches = []
-            st.session_state.page = "Live Match Management" # <-- FIX: Programmatically set the page
+            st.session_state.menu = "Live Match Management"
             st.session_state.timer_running = False
             st.session_state.timer_start_time = None
             st.session_state.elapsed_time = timedelta(0)
@@ -221,7 +220,7 @@ if st.session_state.page == "Start a New Tournament":
             st.rerun()
 
 # ---------- Live Match ----------
-elif st.session_state.page == "Live Match Management" and st.session_state.tournament:
+elif st.session_state.menu == "Live Match Management" and st.session_state.tournament:
     if st.session_state.timer_running:
         st_autorefresh(interval=1000, key="timer_refresh")
 
@@ -306,6 +305,7 @@ elif st.session_state.page == "Live Match Management" and st.session_state.tourn
                 st.session_state.goal_events[i]['assister'] = st.selectbox(f"Assister for Goal {i+1}", options=assist_options, key=f"assister_{i}")
     
     st.markdown("---")
+    # --- 4. Button is disabled if the timer hasn't started ---
     if st.session_state.timer_start_time is None:
         st.info("Start the timer before you can finish the match.")
 
@@ -351,7 +351,7 @@ elif st.session_state.page == "Live Match Management" and st.session_state.tourn
         st.rerun()
 
 # ---------- Finish Tournament & History ----------
-elif st.session_state.page == "Finish Tournament" and st.session_state.tournament:
+elif st.session_state.menu == "Finish Tournament" and st.session_state.tournament:
     st.header("🏁 Final Results")
     tm = st.session_state.tournament
     df_teams = calculate_team_stats(tm['history'], tm['teams'])
@@ -369,10 +369,10 @@ elif st.session_state.page == "Finish Tournament" and st.session_state.tournamen
         st.success("Tournament saved to history!")
         st.balloons()
         st.session_state.tournament = {}
-        st.session_state.page = "Start a New Tournament" # <-- FIX: Programmatically set the page
+        st.session_state.menu = "Start a New Tournament"
         st.rerun()
 
-elif st.session_state.page == "Tournament History":
+elif st.session_state.menu == "Tournament History":
     st.header("📜 Tournament History")
     if not st.session_state.history:
         st.info("There are no saved tournaments in the history yet.")
@@ -387,6 +387,7 @@ elif st.session_state.page == "Tournament History":
             st.subheader("🏅 Player Leaderboard")
             st.dataframe(df_players.sort_values(by=['Fantasy Points', 'Goals', 'Assists'], ascending=False), use_container_width=True)
             
+            # --- 5. JSON Download Button for each tournament ---
             st.download_button(
                 label="📥 Download Tournament Data (JSON)",
                 data=json.dumps(t, indent=2),
